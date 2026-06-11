@@ -1,6 +1,6 @@
 # raylib4Xbox
 
-**raylib** running on the **Original Xbox** via [nxdk](https://github.com/XboxDev/nxdk), the open-source Xbox homebrew toolchain.
+**[raylib](https://github.com/raysan5/raylib)** running on the **Original Xbox** via [nxdk](https://github.com/XboxDev/nxdk)
 
 Produces bootable `.iso` images that run in [xemu](https://xemu.app/) and on real hardware.
 
