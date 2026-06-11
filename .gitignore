@@ -8,3 +8,5 @@ bin/
 
 # Make dependency files
 *.d
+
+*.Identifier

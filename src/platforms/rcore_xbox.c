@@ -338,7 +338,7 @@ void PollInputEvents(void)
                 }
                 if (axis >= 0)
                 {
-                    // SDL: -32768..32767 → raylib: -1.0..1.0
+                    // SDL: -32768..32767 -> raylib: -1.0..1.0
                     float value = event.caxis.value / 32767.0f;
                     CORE.Input.Gamepad.axisState[slot][axis] = value;
 
@@ -419,10 +419,11 @@ int InitPlatform(void)
     }
 
     // Streaming texture — we upload a fresh pixel buffer every frame
-    // SDL_PIXELFORMAT_ABGR8888 = bytes in memory order: R, G, B, A (matches PIXELFORMAT_UNCOMPRESSED_R8G8B8A8)
+    // rlsw outputs BGRA (SW_FRAMEBUFFER_OUTPUT_BGRA=true): bytes B,G,R,A in memory.
+    // SDL_PIXELFORMAT_ARGB8888 on LE = uint32 0xAARRGGBB = bytes B,G,R,A
     platform.texture = SDL_CreateTexture(
         platform.renderer,
-        SDL_PIXELFORMAT_ABGR8888,
+        SDL_PIXELFORMAT_ARGB8888,
         SDL_TEXTUREACCESS_STREAMING,
         screenW, screenH);
 
