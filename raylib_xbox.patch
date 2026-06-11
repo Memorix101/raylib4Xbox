@@ -1,0 +1,122 @@
+diff --git a/src/raudio.c b/src/raudio.c
+index a30ff57b..5f302a67 100644
+--- a/src/raudio.c
++++ b/src/raudio.c
+@@ -79,7 +79,7 @@
+ 
+ #if SUPPORT_MODULE_RAUDIO || defined(RAUDIO_STANDALONE)
+ 
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(PLATFORM_XBOX)
+ // To avoid conflicting windows.h symbols with raylib, some flags are defined
+ // WARNING: Those flags avoid inclusion of some Win32 headers that could be required
+ // by user at some point and won't be included...
+@@ -282,7 +282,14 @@ typedef struct tagBITMAPINFOHEADER {
+ // Defines and Macros
+ //----------------------------------------------------------------------------------
+ #ifndef AUDIO_DEVICE_FORMAT
+-    #define AUDIO_DEVICE_FORMAT    ma_format_f32    // Device output format (float-32bit)
++    #if defined(PLATFORM_XBOX)
++        // XAudio (nxdk) only outputs s16 stereo at 48000 Hz
++        #define AUDIO_DEVICE_FORMAT             ma_format_s16
++        #define AUDIO_DEVICE_SAMPLE_RATE        48000
++        #define AUDIO_DEVICE_PERIOD_SIZE_IN_FRAMES 1024
++    #else
++        #define AUDIO_DEVICE_FORMAT    ma_format_f32    // Device output format (float-32bit)
++    #endif
+ #endif
+ #ifndef AUDIO_DEVICE_CHANNELS
+     #define AUDIO_DEVICE_CHANNELS              2    // Device output channels: stereo
+diff --git a/src/rcore.c b/src/rcore.c
+index d1bc18ac..defb8571 100644
+--- a/src/rcore.c
++++ b/src/rcore.c
+@@ -168,7 +168,7 @@
+ #endif
+ 
+ // Platform specific defines to handle GetApplicationDirectory()
+-#if defined(_WIN32)
++#if defined(_WIN32) && !defined(PLATFORM_XBOX)
+     #if !defined(MAX_PATH)
+         #define MAX_PATH 260
+     #endif
+@@ -185,6 +185,10 @@
+     #if defined(__cplusplus)
+     }
+     #endif
++#elif defined(PLATFORM_XBOX)
++    #if !defined(MAX_PATH)
++        #define MAX_PATH 260
++    #endif
+ #elif defined(__linux__)
+     #include <unistd.h>
+ #elif defined(__FreeBSD__)
+@@ -203,7 +207,10 @@
+     #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
+ #endif
+ 
+-#if defined(_WIN32) && (defined(_MSC_VER) || defined(__TINYC__))
++#if defined(PLATFORM_XBOX)
++    // nxdk: use Win32 FindFirstFileA/FindNextFileA via a thin dirent shim
++    #include "external/dirent_xbox.h"
++#elif defined(_WIN32) && (defined(_MSC_VER) || defined(__TINYC__))
+     #define DIRENT_MALLOC RL_MALLOC
+     #define DIRENT_FREE RL_FREE
+ 
+@@ -213,7 +220,13 @@
+     #include <dirent.h>             // Required for: DIR, opendir(), closedir() [Used in LoadDirectoryFiles()]
+ #endif
+ #endif
+-#if defined(_WIN32)
++#if defined(PLATFORM_XBOX)
++    #include <direct.h>             // nxdk xboxrt: _getcwd, _chdir, _mkdir
++    #define GETCWD _getcwd
++    #define CHDIR  _chdir
++    #define MKDIR(dir) _mkdir(dir)
++    #define ACCESS(fn) (-1)         // No direct access() on Xbox; use fopen() for file checks
++#elif defined(_WIN32)
+     #include <io.h>                 // Required for: _access() [Used in FileExists()]
+     #include <direct.h>             // Required for: _getch(), _chdir(), _mkdir()
+     #define GETCWD _getcwd          // NOTE: MSDN recommends not to use getcwd(), chdir()
+@@ -537,7 +550,7 @@ static void ScanDirectoryFiles(const char *basePath, FilePathList *list, const c
+ static void RecordAutomationEvent(void); // Record frame events (to internal events array)
+ #endif
+ 
+-#if defined(_WIN32) && !defined(PLATFORM_DESKTOP_RGFW)
++#if defined(_WIN32) && !defined(PLATFORM_DESKTOP_RGFW) && !defined(PLATFORM_XBOX)
+ // NOTE: Declaring Sleep() function symbol to avoid including windows.h (kernel32.lib linkage required)
+ __declspec(dllimport) void __stdcall Sleep(unsigned long msTimeout); // Required for: WaitTime()
+ #endif
+@@ -586,6 +599,8 @@ const char *TextFormat(const char *text, ...); // Formatting of text with variab
+     #include "platforms/rcore_orbis.c"
+ #elif defined(PLATFORM_PROSPERO)
+     #include "platforms/rcore_prospero.c"
++#elif defined(PLATFORM_XBOX)
++    #include "platforms/rcore_xbox.c"
+ #else
+     // TODO: Include your custom platform backend!
+     // i.e software rendering backend or console backend!
+@@ -2703,7 +2718,13 @@ const char *GetApplicationDirectory(void)
+     static char appDir[MAX_FILEPATH_LENGTH] = { 0 };
+     memset(appDir, 0, MAX_FILEPATH_LENGTH);
+ 
+-#if defined(_WIN32)
++#if defined(PLATFORM_XBOX)
++    appDir[0] = 'D';
++    appDir[1] = ':';
++    appDir[2] = '\\';
++    appDir[3] = '\0';
++
++#elif defined(_WIN32)
+     int len = 0;
+ 
+     #if defined(UNICODE)
+@@ -4316,7 +4337,7 @@ void InitTimer(void)
+     // However, it can also reduce overall system performance, because the thread scheduler switches tasks more often
+     // High resolutions can also prevent the CPU power management system from entering power-saving modes
+     // Setting a higher resolution does not improve the accuracy of the high-resolution performance counter
+-#if defined(_WIN32) && SUPPORT_WINMM_HIGHRES_TIMER && !SUPPORT_BUSY_WAIT_LOOP && !defined(PLATFORM_DESKTOP_SDL)
++#if defined(_WIN32) && !defined(PLATFORM_XBOX) && SUPPORT_WINMM_HIGHRES_TIMER && !SUPPORT_BUSY_WAIT_LOOP && !defined(PLATFORM_DESKTOP_SDL)
+     timeBeginPeriod(1); // Setup high-resolution timer to 1ms (granularity of 1-2 ms)
+ #endif
+ 

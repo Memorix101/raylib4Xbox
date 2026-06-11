@@ -1,0 +1,10 @@
+# Build outputs
+*.obj
+*.exe
+*.lib
+*.xbe
+*.iso
+bin/
+
+# Make dependency files
+*.d

@@ -1,0 +1,45 @@
+#**************************************************************************************************
+#
+#   raylib - Xbox sample: audio music stream
+#
+#**************************************************************************************************
+
+XBE_TITLE   = raylib audio music
+GEN_XISO    = $(XBE_TITLE).iso
+
+NXDK_DIR   ?= $(HOME)/nxdk/nxdk
+RAYLIB_DIR ?= $(HOME)/raylib
+RAYLIB_SRC  = $(RAYLIB_DIR)/src
+
+RAYLIB_LIB  = $(RAYLIB_DIR)/projects/Xbox/bin/libraylib.lib
+COMPAT_DIR  = $(RAYLIB_DIR)/projects/Xbox/include
+
+NXDK_SDL    = y
+
+SRCS = $(CURDIR)/main.c
+
+CFLAGS += \
+    -DPLATFORM_XBOX \
+    -DGRAPHICS_API_OPENGL_SOFTWARE \
+    -DSUPPORT_GESTURES_SYSTEM \
+    -DXBOX \
+    -I$(COMPAT_DIR) \
+    -I$(RAYLIB_SRC) \
+    -std=gnu11 \
+    -O2
+
+LDFLAGS += $(RAYLIB_LIB)
+
+include $(NXDK_DIR)/Makefile
+
+main.exe: $(RAYLIB_LIB)
+
+$(GEN_XISO): | $(OUTPUT_DIR)/resources
+
+$(OUTPUT_DIR)/resources: | $(OUTPUT_DIR)
+	mkdir -p $@
+	cp -r $(CURDIR)/resources/. $@/
+
+.PHONY: rebuild-raylib
+rebuild-raylib:
+	$(MAKE) -C $(RAYLIB_DIR)/projects/Xbox libraylib
