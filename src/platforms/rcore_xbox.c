@@ -8,12 +8,11 @@
 *   LIMITATIONS:
 *       - Fixed 640x480 display (NTSC) or 720x480 (NTSC widescreen)
 *       - No keyboard or mouse support
-*       - Software renderer only (GRAPHICS_API_OPENGL_SOFTWARE / rlsw)
 *
 *   DEPENDENCIES:
 *       - nxdk: hal/video.h, hal/xbox.h, hal/debug.h
-*       - SDL2 (nxdk's Xbox SDL2 port) for display output and controller input
-*       - rlsw: raylib's software OpenGL 1.1 implementation
+*       - nxdk-gles11: OpenGL 1.1 on NV2A GPU (glContextInit / glFlipNV2A)
+*       - SDL2 (nxdk's Xbox SDL2 port) for controller input only (no video)
 *
 *   LICENSE: zlib/libpng
 *
@@ -24,6 +23,7 @@
 #include <hal/xbox.h>
 #include <hal/video.h>
 #include <hal/debug.h>
+#include <GL/gl.h>      // nxdk-gles11: OpenGL 1.1 on NV2A
 #include <SDL.h>
 #include <windows.h>    // nxdk minimal Win32 stubs (QueryPerformanceCounter etc.)
 
@@ -34,11 +34,6 @@
 // Types and Structures Definition
 //----------------------------------------------------------------------------------
 typedef struct {
-    SDL_Window      *window;
-    SDL_Renderer    *renderer;
-    SDL_Texture     *texture;
-    unsigned int    *pixels;            // RGBA8888 pixel buffer (from software renderer)
-
     SDL_GameController *gamepad[MAX_GAMEPADS];
     SDL_JoystickID      gamepadId[MAX_GAMEPADS];
 
@@ -85,7 +80,6 @@ void SetWindowIcons(Image *images, int count) { TRACELOG(LOG_WARNING, "SetWindow
 void SetWindowTitle(const char *title)
 {
     CORE.Window.title = title;
-    if (platform.window) SDL_SetWindowTitle(platform.window, title);
 }
 
 void SetWindowPosition(int x, int y)  { TRACELOG(LOG_WARNING, "SetWindowPosition() not available on Xbox"); }
@@ -137,17 +131,7 @@ void DisableCursor(void) { CORE.Input.Mouse.cursorHidden = true; }
 // Swap back buffer with front buffer (screen drawing)
 void SwapScreenBuffer(void)
 {
-    int w = CORE.Window.render.width;
-    int h = CORE.Window.render.height;
-
-    // Pull pixels from the software renderer into our buffer
-    rlCopyFramebuffer(0, 0, w, h, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, platform.pixels);
-
-    // Upload pixel buffer to streaming texture and blit to screen
-    SDL_UpdateTexture(platform.texture, NULL, platform.pixels, w * 4);
-    SDL_RenderClear(platform.renderer);
-    SDL_RenderCopy(platform.renderer, platform.texture, NULL, NULL);
-    SDL_RenderPresent(platform.renderer);
+    glFlipNV2A();
 }
 
 //----------------------------------------------------------------------------------
@@ -367,85 +351,24 @@ void PollInputEvents(void)
 // Initialize platform: graphics, inputs and more
 int InitPlatform(void)
 {
-    // Software renderer is mandatory for this platform
-    if (rlGetVersion() != RL_OPENGL_SOFTWARE)
-    {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: Requires GRAPHICS_API_OPENGL_SOFTWARE");
-        return -1;
-    }
-
     int screenW = CORE.Window.screen.width;
     int screenH = CORE.Window.screen.height;
 
-    // Clamp to valid Xbox resolutions: 640x480 default, 720x480 widescreen
     if (screenW <= 0) screenW = 640;
     if (screenH <= 0) screenH = 480;
 
-    // Initialize Xbox video hardware
+    // Set Xbox video mode (must come before glContextInit)
     XVideoSetMode(screenW, screenH, 32, REFRESH_DEFAULT);
 
-    // Initialize SDL video + controller
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0)
-    {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: SDL_Init failed: %s", SDL_GetError());
-        return -1;
-    }
+    // Initialize NV2A hardware OpenGL context (calls pb_init internally)
+    glContextInit(screenW, screenH);
 
-    platform.window = SDL_CreateWindow(
-        CORE.Window.title,
-        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-        screenW, screenH, 0);
-
-    if (!platform.window)
+    // Initialize SDL for controller input only — no SDL_INIT_VIDEO so pbkit
+    // is not double-initialized
+    if (SDL_Init(SDL_INIT_GAMECONTROLLER) < 0)
     {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: SDL_CreateWindow failed: %s", SDL_GetError());
-        SDL_Quit();
-        return -1;
-    }
-
-    // Accelerated renderer — Xbox SDL backend uses pbkit under the hood
-    platform.renderer = SDL_CreateRenderer(platform.window, -1, SDL_RENDERER_ACCELERATED);
-    if (!platform.renderer)
-    {
-        TRACELOG(LOG_WARNING, "PLATFORM: XBOX: Accelerated renderer unavailable, falling back to software");
-        platform.renderer = SDL_CreateRenderer(platform.window, -1, SDL_RENDERER_SOFTWARE);
-    }
-    if (!platform.renderer)
-    {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: SDL_CreateRenderer failed: %s", SDL_GetError());
-        SDL_DestroyWindow(platform.window);
-        SDL_Quit();
-        return -1;
-    }
-
-    // Streaming texture — we upload a fresh pixel buffer every frame
-    // rlsw outputs BGRA (SW_FRAMEBUFFER_OUTPUT_BGRA=true): bytes B,G,R,A in memory.
-    // SDL_PIXELFORMAT_ARGB8888 on LE = uint32 0xAARRGGBB = bytes B,G,R,A
-    platform.texture = SDL_CreateTexture(
-        platform.renderer,
-        SDL_PIXELFORMAT_ARGB8888,
-        SDL_TEXTUREACCESS_STREAMING,
-        screenW, screenH);
-
-    if (!platform.texture)
-    {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: SDL_CreateTexture failed: %s", SDL_GetError());
-        SDL_DestroyRenderer(platform.renderer);
-        SDL_DestroyWindow(platform.window);
-        SDL_Quit();
-        return -1;
-    }
-
-    // Allocate the software renderer pixel buffer (RGBA8888)
-    platform.pixels = (unsigned int *)RL_CALLOC(screenW * screenH, sizeof(unsigned int));
-    if (!platform.pixels)
-    {
-        TRACELOG(LOG_FATAL, "PLATFORM: XBOX: Failed to allocate pixel buffer");
-        SDL_DestroyTexture(platform.texture);
-        SDL_DestroyRenderer(platform.renderer);
-        SDL_DestroyWindow(platform.window);
-        SDL_Quit();
-        return -1;
+        TRACELOG(LOG_WARNING, "PLATFORM: XBOX: SDL_Init(GAMECONTROLLER) failed: %s", SDL_GetError());
+        // Non-fatal: continue without gamepad support
     }
 
     CORE.Window.render.width        = screenW;
@@ -476,12 +399,6 @@ int InitPlatform(void)
 // Close platform
 void ClosePlatform(void)
 {
-    if (platform.pixels)
-    {
-        RL_FREE(platform.pixels);
-        platform.pixels = NULL;
-    }
-
     for (int i = 0; i < MAX_GAMEPADS; i++)
     {
         if (platform.gamepad[i])
@@ -490,10 +407,6 @@ void ClosePlatform(void)
             platform.gamepad[i] = NULL;
         }
     }
-
-    if (platform.texture)  { SDL_DestroyTexture(platform.texture);   platform.texture  = NULL; }
-    if (platform.renderer) { SDL_DestroyRenderer(platform.renderer);  platform.renderer = NULL; }
-    if (platform.window)   { SDL_DestroyWindow(platform.window);      platform.window   = NULL; }
 
     SDL_Quit();
 

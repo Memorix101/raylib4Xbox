@@ -1,0 +1,3 @@
+[submodule "lib/nxdk-gles11"]
+	path = lib/nxdk-gles11
+	url = https://github.com/Memorix101/nxdk-gles11

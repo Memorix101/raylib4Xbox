@@ -61,7 +61,7 @@ int main(void)
                                (int)frameRec.width, (int)frameRec.height, RED);
 
             // Speed indicator
-            DrawText("FRAME SPEED: ", 100, 180, 10, DARKGRAY);
+            DrawText("FRAME SPEED: ", 20, 180, 10, DARKGRAY);
             DrawText(TextFormat("%02i FPS", framesSpeed), 440, 180, 10, DARKGRAY);
             DrawText("DPAD LEFT/RIGHT to CHANGE SPEED", 160, 200, 10, DARKGRAY);
 
