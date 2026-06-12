@@ -3,7 +3,7 @@
 #   raylib - Xbox (Original) via nxdk
 #
 #   Builds raylib as a static library for the Original Xbox.
-#   Uses PLATFORM_XBOX (rcore_xbox.c) + GRAPHICS_API_OPENGL_SOFTWARE (rlsw).
+#   Uses PLATFORM_XBOX (rcore_xbox.c) + GRAPHICS_API_OPENGL_11 (nxdk-gles11 NV2A hardware).
 #
 #   Setup:
 #       source /path/to/nxdk/bin/activate    # sets NXDK_DIR and PATH
@@ -11,48 +11,48 @@
 #   Build the library:
 #       make libraylib
 #
-#   Build an example XBE (set SRCS to your app's .c files):
-#       make SRCS=my_game.c
-#
 #   Output:
-#       bin/libraylib.lib    - static library to link against
-#       bin/default.xbe      - executable (if SRCS is set)
+#       bin/libraylib.lib    - raylib static library
+#       bin/libGLESv1_CM.lib - nxdk-gles11 OpenGL 1.1 on NV2A
 #
 #**************************************************************************************************
 
 # --- Paths -------------------------------------------------------------------
 
-# NXDK_DIR is set by 'source nxdk/bin/activate'; override if needed.
-NXDK_DIR   ?= $(HOME)/nxdk/nxdk
-RAYLIB_DIR ?= $(HOME)/raylib
-OUTPUT_DIR ?= $(CURDIR)/bin
+NXDK_DIR    ?= $(HOME)/nxdk/nxdk
+RAYLIB_DIR  ?= $(HOME)/raylib
+GLES11_DIR  ?= $(HOME)/raylib4Xbox/lib/nxdk-gles11
+OUTPUT_DIR  ?= $(CURDIR)/bin
 
-RAYLIB_SRC  = $(RAYLIB_DIR)/src
+RAYLIB_SRC   = $(RAYLIB_DIR)/src
 
 # --- nxdk Makefile integration -----------------------------------------------
-# Must be set BEFORE including $(NXDK_DIR)/Makefile so nxdk picks them up.
+
+.DEFAULT_GOAL := libraylib
 
 XBE_TITLE = raylib-xbox
-NXDK_SDL  = y          # include SDL2 for Xbox (display + controller)
+NXDK_SDL  = y          # SDL2 for controller input
 
-# --- Compiler flags (appended to nxdk's NXDK_CFLAGS via CFLAGS) --------------
+# --- Compiler flags ----------------------------------------------------------
 
 CFLAGS += \
     -DPLATFORM_XBOX \
-    -DGRAPHICS_API_OPENGL_SOFTWARE \
+    -DGRAPHICS_API_OPENGL_11 \
     -DSUPPORT_GESTURES_SYSTEM \
     -DXBOX \
     -DSTBIR_NO_SIMD \
     -I$(CURDIR)/include \
     -I$(RAYLIB_SRC) \
     -I$(RAYLIB_SRC)/external \
+    -I$(GLES11_DIR)/include \
+    -I$(GLES11_DIR)/lib/xgu \
+    -I$(GLES11_DIR)/lib/cglm/include \
+    -I$(GLES11_DIR)/lib/stb \
+    -I$(GLES11_DIR)/lib/swizzle \
     -std=gnu11 \
     -O2 \
     -Wno-unused-parameter \
     -Wno-sign-compare
-
-# nxdk-cc already adds -I$(NXDK_DIR)/lib and -I$(NXDK_DIR)/lib/winapi,
-# so <hal/video.h>, <windows.h>, <SDL.h> etc. resolve without extra -I flags.
 
 # --- raylib source files -----------------------------------------------------
 
@@ -67,15 +67,23 @@ RAYLIB_SRCS = \
 RAYLIB_OBJS = $(addsuffix .obj, $(basename $(RAYLIB_SRCS)))
 
 # --- Pull in nxdk build system -----------------------------------------------
-# This defines CC, LIB, NXDK_CFLAGS, the %.obj:%.c rule, etc.
 
 include $(NXDK_DIR)/Makefile
 
 # Apply xbox_compat.h only to raylib translation units, not to nxdk/pdclib sources.
-# Target-specific variable: evaluated when make builds each of these .obj files.
 $(RAYLIB_OBJS): CFLAGS += -include $(CURDIR)/include/xbox_compat.h
 
-# --- Library target ----------------------------------------------------------
+# --- Pull in nxdk-gles11 build -----------------------------------------------
+
+include $(GLES11_DIR)/config_gl.make
+
+# gles11 objects also need the compat header excluded — apply only to raylib objs
+$(GLES11_OBJS): CFLAGS += $(GLES11_CFLAGS)
+
+# --- Library targets ---------------------------------------------------------
+
+$(OUTPUT_DIR)/libGLESv1_CM.lib: $(GLES11_OBJS) | $(OUTPUT_DIR)
+	$(LIB) -out:'$@' $^
 
 $(OUTPUT_DIR)/libraylib.lib: $(RAYLIB_OBJS) | $(OUTPUT_DIR)
 	$(LIB) -out:'$@' $^
@@ -87,8 +95,8 @@ $(OUTPUT_DIR):
 
 .PHONY: libraylib clean-raylib
 
-libraylib: $(OUTPUT_DIR)/libraylib.lib
-	@echo "raylib for Xbox built: $<"
+libraylib: $(OUTPUT_DIR)/libGLESv1_CM.lib $(OUTPUT_DIR)/libraylib.lib
+	@echo "raylib for Xbox built (NV2A hardware renderer)"
 
 clean-raylib:
-	rm -f $(RAYLIB_OBJS) $(OUTPUT_DIR)/libraylib.lib
+	rm -f $(RAYLIB_OBJS) $(GLES11_OBJS) $(OUTPUT_DIR)/libraylib.lib $(OUTPUT_DIR)/libGLESv1_CM.lib

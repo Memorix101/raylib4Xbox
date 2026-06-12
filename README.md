@@ -19,12 +19,13 @@ Produces bootable `.iso` images that run in [xemu](https://xemu.app/) and on rea
 | Layer | What it does |
 |---|---|
 | **raylib** | Handles all drawing, audio, input abstraction |
-| **`PLATFORM_XBOX`** (`rcore_xbox.c`) | New platform backend: SDL2 for display/events, gamepad mapping |
-| **`GRAPHICS_API_OPENGL_SOFTWARE`** | raylib's built-in software renderer (`rlsw`) — no GPU required |
-| **SDL2 (nxdk)** | nxdk's Xbox SDL2 port; uses `pbkit` (pushbuffer DMA) under the hood to blit pixels |
+| **`PLATFORM_XBOX`** (`rcore_xbox.c`) | New platform backend: nxdk-gles11 for display, SDL2 for gamepad input |
+| **`GRAPHICS_API_OPENGL_11`** | raylib's OpenGL 1.1 backend (rlgl), running on real GPU hardware |
+| **[nxdk-gles11](https://github.com/Memorix101/nxdk-gles11)** | OpenGL ES 1.1 + GL 1.1 immediate mode on the NV2A GPU via `pbkit` pushbuffers |
+| **SDL2 (nxdk)** | nxdk's Xbox SDL2 port — controller input only (no video) |
 | **nxdk** | Toolchain + runtime: clang cross-compiler, pdclib, XBE packaging, xiso creation |
 
-The software renderer draws into a pixel buffer. Each frame, `SwapScreenBuffer()` uploads that buffer to an SDL2 streaming texture and blits it to the Xbox framebuffer.
+raylib's rlgl issues standard OpenGL 1.1 calls; nxdk-gles11 translates them into NV2A pushbuffer commands, so all rendering runs on the Xbox GPU. Each frame, `SwapScreenBuffer()` calls `glFlipNV2A()`, which waits for vblank and flips the hardware framebuffer.
 
 ---
 
@@ -76,10 +77,28 @@ cp src/platforms/rcore_xbox.c  /path/to/raylib/src/platforms/
 cp src/external/dirent_xbox.h  /path/to/raylib/src/external/
 ```
 
+### Get nxdk-gles11
+
+The GPU renderer lives in the `lib/nxdk-gles11` submodule:
+
+```sh
+git clone --recurse-submodules https://github.com/Memorix101/raylib4Xbox.git
+# or, in an existing checkout:
+git submodule update --init
+```
+
 ### Copy the build system
 
 ```sh
 cp -r projects/Xbox  /path/to/raylib/projects/
+```
+
+The Makefiles locate nxdk-gles11 via `GLES11_DIR` (default:
+`$(HOME)/raylib4Xbox/lib/nxdk-gles11`) — override it if your checkout lives
+elsewhere:
+
+```sh
+make -C /path/to/raylib/projects/Xbox libraylib GLES11_DIR=/path/to/raylib4Xbox/lib/nxdk-gles11
 ```
 
 ### Activate nxdk environment
@@ -95,7 +114,8 @@ export PATH="$NXDK_DIR/bin:$PATH"
 
 ```sh
 make -C /path/to/raylib/projects/Xbox libraylib
-# Output: projects/Xbox/bin/libraylib.lib
+# Output: projects/Xbox/bin/libraylib.lib     (raylib)
+#         projects/Xbox/bin/libGLESv1_CM.lib  (nxdk-gles11 GPU renderer)
 ```
 
 ---
@@ -168,7 +188,7 @@ Pass the desired resolution to `InitWindow()`. The backend calls `XVideoSetMode(
 ## Known limitations
 
 - **Audio is s16 only** — nxdk's XAudio HAL outputs signed 16-bit stereo at 48 000 Hz. The patch overrides `AUDIO_DEVICE_FORMAT` to `ma_format_s16` and `AUDIO_DEVICE_SAMPLE_RATE` to `48000` for `PLATFORM_XBOX`.
-- **Software rendering only** — The Xbox GPU (NV2A) is not used for rendering. Expect lower performance for complex 3D scenes compared to hardware OpenGL.
+- **OpenGL 1.1 fixed-function only** — the NV2A is a fixed-function-era GPU; raylib features that need shaders (`GRAPHICS_API_OPENGL_33`+) are not available. No mipmaps or FBOs yet (see nxdk-gles11 TODO).
 - **No keyboard or mouse** — Xbox has no keyboard/mouse support. All input is via gamepad.
 - **File paths must use `D:\`** — Resources on the ISO are accessible under `D:\resources\filename`. Use backslash paths or pass the full path when loading assets.
 - **Floating-point string functions** — `atof()` and `strtof()` are missing from pdclib; they are shimmed to `strtod()` in `xbox_compat.h`.
@@ -180,6 +200,8 @@ Pass the desired resolution to `InitWindow()`. The backend calls `XVideoSetMode(
 ```
 raylib4Xbox/
 ├── raylib_xbox.patch           # Minimal patch for raylib's rcore.c and raudio.c
+├── lib/
+│   └── nxdk-gles11/            # Submodule: OpenGL 1.1 on the NV2A GPU
 ├── src/
 │   ├── platforms/
 │   │   └── rcore_xbox.c        # Xbox platform backend (display, input, timing)
@@ -187,7 +209,7 @@ raylib4Xbox/
 │       └── dirent_xbox.h       # POSIX dirent shim using nxdk's FindFirstFileA
 ├── projects/
 │   └── Xbox/
-│       ├── Makefile             # Builds libraylib.lib via nxdk toolchain
+│       ├── Makefile             # Builds libraylib.lib + libGLESv1_CM.lib via nxdk toolchain
 │       └── include/
 │           ├── xbox_compat.h   # MSVC CRT shims (fopen_s, atof, stricmp, …)
 │           ├── io.h            # Stub for <io.h> (_access)
@@ -209,9 +231,15 @@ raylib4Xbox/
 
 nxdk emulates the Windows ABI (i386-pc-win32 clang target) but provides none of the Win32 windowing APIs (`CreateWindowEx`, `GetDC`, `wglCreateContext`, etc.). `PLATFORM_DESKTOP_WIN32` needs all of these. A dedicated platform file avoids patching the existing desktop backend.
 
-### Why the software renderer?
+### How OpenGL runs on the NV2A
 
-The Xbox's NV2A GPU has a proprietary pushbuffer interface exposed via `pbkit`. It is not compatible with OpenGL or Vulkan at the API level. raylib's software renderer (`rlsw`) implements OpenGL 1.1 semantics in software and outputs a pixel buffer — exactly what is needed here.
+The Xbox's NV2A GPU has a proprietary pushbuffer interface exposed via `pbkit` — it is not OpenGL-compatible at the API level. [nxdk-gles11](https://github.com/Memorix101/nxdk-gles11) bridges that gap: it implements OpenGL ES 1.1 plus the desktop GL 1.1 immediate-mode subset that raylib's rlgl backend needs, translating GL state and draw calls into NV2A pushbuffer commands.
+
+Two NV2A quirks the library handles transparently:
+- The GPU reads vertex arrays by **physical address**, so client arrays from regular heap memory are staged per draw call into physically contiguous write-combined memory.
+- NPOT textures use unnormalized coordinates; the hardware texture matrix is kept in sync with the bound texture's dimensions.
+
+A software-rendered variant of this port (rlsw, no GPU) lives on the [`rlsw` branch](https://github.com/Memorix101/raylib4Xbox/tree/rlsw).
 
 ### The `-include xbox_compat.h` scope problem
 
@@ -231,4 +259,4 @@ This applies the force-include only to the six raylib translation units, not to 
 - [raylib4Consoles](https://github.com/raylib4Consoles) — multi-console raylib fork
 - [nxdk](https://github.com/XboxDev/nxdk) — open-source Xbox toolchain by the XboxDev community
 - [xemu](https://xemu.app/) — Original Xbox emulator
-- [nxdk-gles11](https://github.com/Memorix101/nxdk-gles11) — by Ryzee119
+- [nxdk-gles11](https://github.com/Memorix101/nxdk-gles11) — fork of [nxdk-gles11 by Ryzee119](https://github.com/Ryzee119/nxdk-gles11)

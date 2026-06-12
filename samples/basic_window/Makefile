@@ -33,7 +33,7 @@ SRCS = $(CURDIR)/main.c
 # nxdk's own library sources (pdclib etc.) with the compat header.
 CFLAGS += \
     -DPLATFORM_XBOX \
-    -DGRAPHICS_API_OPENGL_SOFTWARE \
+    -DGRAPHICS_API_OPENGL_11 \
     -DSUPPORT_GESTURES_SYSTEM \
     -DXBOX \
     -I$(COMPAT_DIR) \
@@ -43,6 +43,9 @@ CFLAGS += \
 
 # Tell the linker to include our raylib static library.
 LDFLAGS += $(RAYLIB_LIB)
+GLES11_DIR ?= $(HOME)/raylib4Xbox/lib/nxdk-gles11
+GLES11_LIB  = $(RAYLIB_DIR)/projects/Xbox/bin/libGLESv1_CM.lib
+LDFLAGS    += $(GLES11_LIB)
 
 # Pull in the full nxdk build system (provides CC, LD, rules for .xbe and .iso)
 include $(NXDK_DIR)/Makefile

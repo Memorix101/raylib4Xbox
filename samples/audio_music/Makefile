@@ -20,7 +20,7 @@ SRCS = $(CURDIR)/main.c
 
 CFLAGS += \
     -DPLATFORM_XBOX \
-    -DGRAPHICS_API_OPENGL_SOFTWARE \
+    -DGRAPHICS_API_OPENGL_11 \
     -DSUPPORT_GESTURES_SYSTEM \
     -DXBOX \
     -I$(COMPAT_DIR) \
@@ -29,6 +29,9 @@ CFLAGS += \
     -O2
 
 LDFLAGS += $(RAYLIB_LIB)
+GLES11_DIR ?= $(HOME)/raylib4Xbox/lib/nxdk-gles11
+GLES11_LIB  = $(RAYLIB_DIR)/projects/Xbox/bin/libGLESv1_CM.lib
+LDFLAGS    += $(GLES11_LIB)
 
 include $(NXDK_DIR)/Makefile
 
