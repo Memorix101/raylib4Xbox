@@ -68,7 +68,8 @@ git apply /path/to/raylib4Xbox/raylib_xbox.patch
 
 What the patch does:
 - **`src/rcore.c`**: adds `PLATFORM_XBOX` branch in 6 places — includes `rcore_xbox.c`, routes to `dirent_xbox.h`, disables `GetModuleFileNameA`, `timeBeginPeriod`, and the `Sleep` dllimport declaration
-- **`src/raudio.c`**: guards the `#include <objbase.h>` (WASAPI/COM) block with `!defined(PLATFORM_XBOX)` — these headers don't exist in nxdk
+- **`src/raudio.c`**: guards the `#include <objbase.h>` (WASAPI/COM) block with `!defined(PLATFORM_XBOX)` — these headers don't exist in nxdk — and sets the device sample rate to 48 000 Hz (native AC97 rate, avoids resampling)
+- **`src/external/miniaudio.h`**: fixes the XAudio (NXDK) backend's device start — upstream starts the AC97 DMA with empty descriptors, which crashes real hardware; the patch pre-fills all sub-buffers before `XAudioPlay()`
 
 ### Copy Xbox-specific source files into raylib
 
@@ -187,7 +188,7 @@ Pass the desired resolution to `InitWindow()`. The backend calls `XVideoSetMode(
 
 ## Known limitations
 
-- **Audio is s16 only** — nxdk's XAudio HAL outputs signed 16-bit stereo at 48 000 Hz. The patch overrides `AUDIO_DEVICE_FORMAT` to `ma_format_s16` and `AUDIO_DEVICE_SAMPLE_RATE` to `48000` for `PLATFORM_XBOX`.
+- **Audio output is 48 000 Hz stereo** — nxdk's XAudio HAL drives the AC97 codec at s16 stereo 48 000 Hz. raylib mixes in f32 as usual; miniaudio converts to s16 for the hardware. Sources at other sample rates (e.g. 44.1 kHz MP3s) are resampled on the fly.
 - **OpenGL 1.1 fixed-function only** — the NV2A is a fixed-function-era GPU; raylib features that need shaders (`GRAPHICS_API_OPENGL_33`+) are not available. No mipmaps or FBOs yet (see nxdk-gles11 TODO).
 - **No keyboard or mouse** — Xbox has no keyboard/mouse support. All input is via gamepad.
 - **File paths must use `D:\`** — Resources on the ISO are accessible under `D:\resources\filename`. Use backslash paths or pass the full path when loading assets.

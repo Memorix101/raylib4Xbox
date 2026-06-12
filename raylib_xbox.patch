@@ -1,5 +1,52 @@
+diff --git a/src/external/miniaudio.h b/src/external/miniaudio.h
+index c3770f1a..c2b93f0c 100644
+--- a/src/external/miniaudio.h
++++ b/src/external/miniaudio.h
+@@ -48684,18 +48684,33 @@ static void ma_device_fill_sub_buffer__xaudio(ma_device* pDevice, ma_uint32 subB
+ static ma_result ma_device_start__xaudio(ma_device* pDevice)
+ {
+     ma_device_state_xaudio* pDeviceStateXAudio = ma_device_get_backend_state__xaudio(pDevice);
++    ma_uint16 i;
++    ma_uint32 periodBytes;
+ 
+-    /* Clear everything out and reload our buffers. We need to submit data to XAudio before we start playing. */
+-    #if 0
+-    pDeviceStateXAudio->subBufferIndex   = 0;
+-    pDeviceStateXAudio->emptyBufferCount = 0;
+-    ma_device_fill_sub_buffer__xaudio(pDevice, 0);
+-    ma_device_fill_sub_buffer__xaudio(pDevice, 1);
+-    ma_device_callback__xaudio(NULL, pDevice);
+-    #endif
++    /*
++    Pre-fill all sub-buffers before starting the hardware. Without this,
++    XAudioPlay() starts with empty AC97 descriptors (address=0, length=0),
++    which causes real hardware to fire completion IRQs immediately on every
++    zero-length buffer and crash. xemu is lenient about this but real hardware
++    is not.
++    */
++    periodBytes = pDevice->playback.internalPeriodSizeInFrames
++                  * ma_get_bytes_per_frame(pDevice->playback.internalFormat,
++                                           pDevice->playback.internalChannels);
++    pDeviceStateXAudio->subBufferIndex = 0;
++    for (i = 0; i < pDeviceStateXAudio->subBufferCount; i++) {
++        ma_device_fill_sub_buffer__xaudio(pDevice, i);
++        XAudioProvideSamples((unsigned char*)ma_device_get_sub_buffer__xaudio(pDevice, i),
++                             (unsigned short)periodBytes, 0);
++    }
++    pDeviceStateXAudio->subBufferIndex = 0;
+ 
+     XAudioPlay();
+-    pDeviceStateXAudio->queuedAudioTime = ma_timer_get_time_in_seconds(&pDeviceStateXAudio->timer);
++
++    /* queuedAudioTime = now + all pre-filled audio so the step function
++       knows not to submit more until those buffers are nearly consumed. */
++    pDeviceStateXAudio->queuedAudioTime = ma_timer_get_time_in_seconds(&pDeviceStateXAudio->timer)
++        + pDeviceStateXAudio->periodTimeInSeconds * pDeviceStateXAudio->subBufferCount;
+ 
+     return MA_SUCCESS;
+ }
 diff --git a/src/raudio.c b/src/raudio.c
-index a30ff57b..5f302a67 100644
+index a30ff57b..13096088 100644
 --- a/src/raudio.c
 +++ b/src/raudio.c
 @@ -79,7 +79,7 @@
@@ -11,14 +58,16 @@ index a30ff57b..5f302a67 100644
  // To avoid conflicting windows.h symbols with raylib, some flags are defined
  // WARNING: Those flags avoid inclusion of some Win32 headers that could be required
  // by user at some point and won't be included...
-@@ -282,7 +282,14 @@ typedef struct tagBITMAPINFOHEADER {
+@@ -282,7 +282,16 @@ typedef struct tagBITMAPINFOHEADER {
  // Defines and Macros
  //----------------------------------------------------------------------------------
  #ifndef AUDIO_DEVICE_FORMAT
 -    #define AUDIO_DEVICE_FORMAT    ma_format_f32    // Device output format (float-32bit)
 +    #if defined(PLATFORM_XBOX)
-+        // XAudio (nxdk) only outputs s16 stereo at 48000 Hz
-+        #define AUDIO_DEVICE_FORMAT             ma_format_s16
++        // XAudio (nxdk) outputs s16 stereo at 48000 Hz, but raylib's mixer
++        // (OnSendAudioDataToDevice/MixAudioFrames) requires an f32 device
++        // buffer — miniaudio converts f32 -> s16 internally for the backend.
++        #define AUDIO_DEVICE_FORMAT             ma_format_f32
 +        #define AUDIO_DEVICE_SAMPLE_RATE        48000
 +        #define AUDIO_DEVICE_PERIOD_SIZE_IN_FRAMES 1024
 +    #else
