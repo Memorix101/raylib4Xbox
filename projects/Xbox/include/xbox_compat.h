@@ -82,14 +82,75 @@ static inline int _wfopen_s(FILE **f, const wchar_t *path, const wchar_t *mode)
 #define __int64 long long
 #endif
 
-// atof / strtof: pdclib declares but does not implement these.
-// strtod is available via libxboxrt (stdlib_ext_.c).
+// String-to-float conversions.
+// WARNING: nxdk's strtod/strtof/atof are NOT real implementations - libxboxrt's
+// strtod/strtof are assert(0) stubs and pdclib only declares atof. Anything that
+// parses floating-point text through them (e.g. cgltf parsing glTF JSON numbers)
+// crashes with a Fatal System Error. We provide a self-contained parser here and
+// route atof/strtod/strtof to it so those code paths work on Xbox.
 #include <stdlib.h>
+
+static inline double xbox_strtod(const char *s, char **endptr)
+{
+    const char *p = s;
+    double result = 0.0;
+    int sign = 1;
+
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\f' || *p == '\v') p++;
+
+    if (*p == '+') p++;
+    else if (*p == '-') { sign = -1; p++; }
+
+    while (*p >= '0' && *p <= '9')
+    {
+        result = result*10.0 + (double)(*p - '0');
+        p++;
+    }
+
+    if (*p == '.')
+    {
+        double scale = 0.1;
+        p++;
+        while (*p >= '0' && *p <= '9')
+        {
+            result += (double)(*p - '0')*scale;
+            scale *= 0.1;
+            p++;
+        }
+    }
+
+    result *= sign;
+
+    if (*p == 'e' || *p == 'E')
+    {
+        int expSign = 1;
+        int exp = 0;
+        double pow10 = 1.0;
+        p++;
+        if (*p == '+') p++;
+        else if (*p == '-') { expSign = -1; p++; }
+        while (*p >= '0' && *p <= '9')
+        {
+            exp = exp*10 + (*p - '0');
+            p++;
+        }
+        while (exp-- > 0) pow10 *= 10.0;
+        if (expSign > 0) result *= pow10;
+        else result /= pow10;
+    }
+
+    if (endptr) *endptr = (char *)p;
+    return result;
+}
+
 #ifndef atof
-#define atof(s)       strtod((s), NULL)
+#define atof(s)       xbox_strtod((s), NULL)
+#endif
+#ifndef strtod
+#define strtod(s, e)  xbox_strtod((s), (e))
 #endif
 #ifndef strtof
-#define strtof(s, e)  ((float)strtod((s), (e)))
+#define strtof(s, e)  ((float)xbox_strtod((s), (e)))
 #endif
 
 #endif // XBOX_COMPAT_H

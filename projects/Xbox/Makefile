@@ -73,6 +73,10 @@ include $(NXDK_DIR)/Makefile
 # Apply xbox_compat.h only to raylib translation units, not to nxdk/pdclib sources.
 $(RAYLIB_OBJS): CFLAGS += -include $(CURDIR)/include/xbox_compat.h
 
+# rcore.c #includes the Xbox platform backend, so rebuild rcore.obj whenever
+# the platform source or its dirent shim changes (Make can't see #include deps).
+$(RAYLIB_SRC)/rcore.obj: $(RAYLIB_SRC)/platforms/rcore_xbox.c $(RAYLIB_SRC)/external/dirent_xbox.h
+
 # --- Pull in nxdk-gles11 build -----------------------------------------------
 
 include $(GLES11_DIR)/config_gl.make

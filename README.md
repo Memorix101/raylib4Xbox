@@ -131,6 +131,7 @@ make -C samples/basic_window
 ```
 
 Load the `.iso` in xemu via **File > Load Xbox ISO**, or burn/inject onto real hardware.
+To output debug text in terminal run xemu with `./xemu.exe -device lpc47m157 -serial stdio`
 
 ---
 
@@ -190,7 +191,9 @@ Pass the desired resolution to `InitWindow()`. The backend calls `XVideoSetMode(
 - **OpenGL 1.1 fixed-function only**: the NV2A is a fixed-function-era GPU, so raylib features that need shaders (`GRAPHICS_API_OPENGL_33`+) are not available. No mipmaps or FBOs yet (see nxdk-gles11 TODO).
 - **No keyboard or mouse**: Xbox has no keyboard/mouse support. All input is via gamepad.
 - **File paths must use `D:\`**: resources on the ISO are accessible under `D:\resources\filename`. Use backslash paths or pass the full path when loading assets.
-- **Floating-point string functions**: `atof()` and `strtof()` are missing from pdclib and are shimmed to `strtod()` in `xbox_compat.h`.
+- **`fopen()` is binary-only**: nxdk's CRT rejects the text mode flag, so `fopen(path, "rt")` returns `NULL` while `"rb"` works. raylib's `LoadFileText()` uses text mode, which silently broke OBJ/MTL loading, so `PLATFORM_XBOX` registers a binary `LoadFileText` callback in `rcore_xbox.c`. Always open files with `"rb"`/`"wb"`.
+- **No `chdir()`**: nxdk's `_chdir()` only accepts `D:\` and aborts (Fatal System Error) on any other path. The OBJ loader's directory switch is disabled for `PLATFORM_XBOX`; load assets with absolute `D:\` paths instead of relying on a working directory.
+- **Floating-point string functions**: `atof`, `strtof` and `strtod` are not usable on nxdk - pdclib only declares `atof`, and libxboxrt's `strtod`/`strtof` are `assert(0)` stubs that crash at runtime. `xbox_compat.h` provides a self-contained `xbox_strtod()` and routes `atof`/`strtod`/`strtof` to it, so text parsers that read floats (e.g. cgltf parsing glTF JSON) work. tinyobj is unaffected because it has its own float parser.
 
 ---
 

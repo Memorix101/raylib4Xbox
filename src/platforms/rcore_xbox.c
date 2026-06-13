@@ -27,6 +27,7 @@
 #include <SDL.h>
 #include <windows.h>    // nxdk minimal Win32 stubs (QueryPerformanceCounter etc.)
 
+#include <stdio.h>      // fopen, fseek, ftell, fread, fclose (binary text loader)
 #include <stdlib.h>
 #include <string.h>
 
@@ -349,6 +350,42 @@ void PollInputEvents(void)
 //----------------------------------------------------------------------------------
 
 // Initialize platform: graphics, inputs and more
+// Xbox text-file loader.
+// raylib's default LoadFileText() opens with fopen(..., "rt"), but nxdk's CRT
+// rejects the "t" (text) mode and returns NULL, so every text-based asset
+// loader (OBJ, MTL, IQM headers, ...) fails. We register this as the
+// LoadFileText callback so those files are read in binary mode instead.
+static char *LoadFileTextXbox(const char *fileName)
+{
+    if (fileName == NULL) return NULL;
+
+    FILE *file = fopen(fileName, "rb");
+    if (file == NULL) return NULL;
+
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    if (size <= 0)
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    char *text = (char *)malloc(size + 1); // freed by UnloadFileText() -> RL_FREE -> free
+    if (text == NULL)
+    {
+        fclose(file);
+        return NULL;
+    }
+
+    size_t count = fread(text, 1, (size_t)size, file);
+    text[count] = '\0';
+    fclose(file);
+
+    return text;
+}
+
 int InitPlatform(void)
 {
     int screenW = CORE.Window.screen.width;
@@ -391,6 +428,10 @@ int InitPlatform(void)
     InitTimer();
 
     CORE.Storage.basePath = GetWorkingDirectory();
+
+    // nxdk's fopen() rejects text mode ("rt"); route LoadFileText() through a
+    // binary reader so OBJ/MTL and other text assets load correctly.
+    SetLoadFileTextCallback(LoadFileTextXbox);
 
     TRACELOG(LOG_INFO, "PLATFORM: XBOX (nxdk): Initialized successfully");
     return 0;
