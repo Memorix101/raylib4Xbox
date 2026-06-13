@@ -1,14 +1,12 @@
 # raylib4Xbox
 
-OpenGL support (OpenGL ES 1.1)
-
 https://github.com/user-attachments/assets/ed6e8d39-9e37-4955-b455-0198676f1c6b
 
 https://github.com/user-attachments/assets/e637923d-435d-4a33-8433-34f9c510691b
 
 **[raylib](https://github.com/raysan5/raylib)** running on the **Original Xbox** via [nxdk](https://github.com/XboxDev/nxdk).
 
-Produces bootable `.iso` images that run in [xemu](https://xemu.app/) and on real hardware.
+Produces bootable `.iso` images that run in [xemu](https://xemu.app/) and on real hardware with OpenGL support (OpenGL ES 1.1).
 
 ---
 
